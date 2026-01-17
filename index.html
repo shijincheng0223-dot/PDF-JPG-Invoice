@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Go Pro - 高清发票转换器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- JSZip -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: radial-gradient(circle at 0% 0%, #fdfbfb 0%, #ebedee 100%);
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+        }
+
+        .drop-zone {
+            transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+        }
+
+        .drop-zone.dragover {
+            border-color: #6366f1;
+            background: rgba(99, 102, 241, 0.05);
+            transform: translateY(-2px);
+        }
+
+        .image-card {
+            transition: all 0.3s ease;
+        }
+
+        .image-card:hover .overlay {
+            opacity: 1;
+        }
+
+        /* Modal Animation */
+        #previewModal {
+            transition: opacity 0.3s ease;
+        }
+        #modalContent {
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .btn-gradient {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            transition: transform 0.2s active;
+        }
+
+        .btn-gradient:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-900 pb-20">
+
+    <div class="max-w-6xl mx-auto py-12 px-6">
+        <!-- Header -->
+        <header class="flex flex-col items-center mb-16 text-center">
+            <div class="w-16 h-16 bg-indigo-600 rounded-3xl shadow-2xl shadow-indigo-200 flex items-center justify-center mb-6 rotate-3 hover:rotate-0 transition-transform duration-500">
+                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+            </div>
+            <h1 class="text-5xl font-black tracking-tight text-slate-900 mb-4">
+                PDF <span class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-violet-600">Go Pro</span>
+            </h1>
+            <p class="text-slate-500 text-lg max-w-xl">增强识别版：自动处理重名文件，确保完整导出。隐私安全，本地处理。</p>
+        </header>
+
+        <main class="grid grid-cols-1 gap-8">
+            <!-- Top Controls -->
+            <section class="glass-panel rounded-[2.5rem] p-8 shadow-xl shadow-slate-200/50 flex flex-wrap items-center justify-between gap-6">
+                <div class="flex gap-4 items-center">
+                    <div class="bg-indigo-50 px-4 py-2 rounded-2xl border border-indigo-100">
+                        <label class="block text-[10px] font-bold text-indigo-400 uppercase mb-1">渲染质量</label>
+                        <select id="qualityScale" class="bg-transparent font-bold text-indigo-700 outline-none cursor-pointer">
+                            <option value="2">高清 (2x)</option>
+                            <option value="3">超清 (3x)</option>
+                            <option value="1.5">中等 (1.5x)</option>
+                        </select>
+                    </div>
+                    <div class="hidden sm:block text-sm text-slate-400">
+                        智能防止重名：重复文件名将自动增加 (1), (2) 后缀
+                    </div>
+                </div>
+                
+                <button id="downloadAllBtn" class="hidden btn-gradient text-white px-10 py-3.5 rounded-2xl font-bold shadow-lg shadow-indigo-200 flex items-center gap-3">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" stroke-width="2.5"></path></svg>
+                    导出 ZIP 压缩包
+                </button>
+            </section>
+
+            <!-- Upload Area -->
+            <section id="dropZone" class="drop-zone glass-panel rounded-[2.5rem] p-20 text-center cursor-pointer border-2 border-dashed border-slate-300 hover:border-indigo-400">
+                <input type="file" id="fileInput" class="hidden" accept="application/pdf" multiple>
+                <div class="flex flex-col items-center">
+                    <div class="w-24 h-24 mb-6 rounded-full bg-white shadow-inner flex items-center justify-center">
+                        <svg class="w-12 h-12 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-bold text-slate-800 mb-2">批量拖入发票 PDF</h3>
+                    <p class="text-slate-400">自动解析金额与税额之和，支持重名文件自动重命名</p>
+                </div>
+            </section>
+
+            <!-- Progress Card -->
+            <section id="statusArea" class="hidden glass-panel rounded-[2.5rem] p-8 animate-pulse">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-4">
+                        <div class="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+                            <svg class="w-6 h-6 text-indigo-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <p id="progressText" class="text-sm font-bold text-slate-700 uppercase tracking-widest">正在解析文档...</p>
+                            <p class="text-xs text-slate-400">确保文件名唯一性</p>
+                        </div>
+                    </div>
+                    <span id="progressPercent" class="text-3xl font-black text-indigo-600">0%</span>
+                </div>
+                <div class="w-full bg-slate-100 rounded-full h-4 overflow-hidden p-1">
+                    <div id="progressBar" class="bg-indigo-600 h-full rounded-full transition-all duration-300 shadow-[0_0_15px_rgba(99,102,241,0.6)]" style="width: 0%"></div>
+                </div>
+            </section>
+
+            <!-- Results Grid -->
+            <section id="previewSection" class="hidden space-y-6">
+                <div class="flex items-center justify-between px-4">
+                    <h3 class="text-xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                        转换列表
+                        <span id="countBadge" class="bg-indigo-600 text-white text-[10px] py-1 px-3 rounded-full">0</span>
+                    </h3>
+                </div>
+                <div id="previewList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8"></div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Preview Modal -->
+    <div id="previewModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/90 hidden opacity-0">
+        <button id="closeModal" class="absolute top-6 right-6 text-white hover:text-indigo-400 transition-colors">
+            <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+        <div id="modalContent" class="max-w-5xl w-full scale-90">
+            <img id="modalImage" src="" class="w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border-4 border-white/10" alt="Preview">
+            <div class="mt-6 flex items-center justify-between text-white">
+                <div>
+                    <p id="modalTitle" class="text-lg font-bold truncate max-w-md"></p>
+                    <p class="text-slate-400 text-sm italic">高清预览模式</p>
+                </div>
+                <a id="modalDownload" href="#" download="" class="bg-white text-slate-900 px-6 py-2 rounded-xl font-bold hover:bg-indigo-50 transition-colors">下载原图</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        const fileInput = document.getElementById('fileInput');
+        const dropZone = document.getElementById('dropZone');
+        const previewList = document.getElementById('previewList');
+        const previewSection = document.getElementById('previewSection');
+        const countBadge = document.getElementById('countBadge');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const progressPercent = document.getElementById('progressPercent');
+        const statusArea = document.getElementById('statusArea');
+        const downloadAllBtn = document.getElementById('downloadAllBtn');
+        const qualityScale = document.getElementById('qualityScale');
+
+        const previewModal = document.getElementById('previewModal');
+        const modalImage = document.getElementById('modalImage');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalDownload = document.getElementById('modalDownload');
+        const closeModal = document.getElementById('closeModal');
+
+        let convertedImages = [];
+
+        dropZone.onclick = () => fileInput.click();
+        dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('dragover'); };
+        dropZone.ondragleave = () => dropZone.classList.remove('dragover');
+        dropZone.ondrop = (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        };
+
+        fileInput.onchange = (e) => handleFiles(e.target.files);
+
+        function extractInvoiceInfo(textItems) {
+            const fullRaw = textItems.join(' ');
+            const compactText = fullRaw.replace(/\s/g, '');
+            
+            let amount = "未知";
+            let invoiceNo = "未知";
+
+            const xiaoxieRegex = /(?:小写|（小写）|\(小写\))[:：\s]*[¥￥$]?([\d,]+\.\d{2})/;
+            const xiaoxieMatch = compactText.match(xiaoxieRegex);
+            
+            if (xiaoxieMatch) {
+                amount = xiaoxieMatch[1].replace(/,/g, '');
+            } else {
+                const totalKeywordPos = fullRaw.indexOf('合计');
+                if (totalKeywordPos !== -1) {
+                    const textAfterTotal = fullRaw.substring(totalKeywordPos);
+                    const numberMatches = textAfterTotal.match(/[\d,]+\.\d{2}/g);
+                    
+                    if (numberMatches && numberMatches.length >= 2) {
+                        const val1 = parseFloat(numberMatches[0].replace(/,/g, ''));
+                        const val2 = parseFloat(numberMatches[1].replace(/,/g, ''));
+                        if (!isNaN(val1) && !isNaN(val2)) {
+                            amount = (val1 + val2).toFixed(2);
+                        }
+                    } else if (numberMatches && numberMatches.length === 1) {
+                        amount = numberMatches[0].replace(/,/g, '');
+                    }
+                }
+            }
+
+            if (amount === "未知") {
+                const finalTryMatch = compactText.match(/(?:价税合计|合计)[:：\s]*[¥￥$]?([\d,]+\.\d{2})/);
+                if (finalTryMatch) amount = finalTryMatch[1].replace(/,/g, '');
+            }
+
+            const noRegex = /(?:发票号码|发票编号|代码|号码|NO|No|№)[:：\s]*(\d{8,20})/;
+            const noMatch = compactText.match(noRegex);
+            if (noMatch) {
+                invoiceNo = noMatch[1];
+            } else {
+                const loneMatches = fullRaw.match(/\b\d{8}\b/);
+                if (loneMatches) invoiceNo = loneMatches[0];
+            }
+
+            return { amount, invoiceNo };
+        }
+
+        async function handleFiles(files) {
+            const pdfFiles = Array.from(files).filter(f => f.type === 'application/pdf');
+            if (pdfFiles.length === 0) return;
+
+            convertedImages = [];
+            previewList.innerHTML = '';
+            statusArea.classList.remove('hidden');
+            previewSection.classList.remove('hidden');
+            downloadAllBtn.classList.add('hidden');
+            
+            let totalProcessed = 0;
+            let totalPages = 0;
+
+            try {
+                for (const file of pdfFiles) {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                    totalPages += pdf.numPages;
+                }
+
+                for (const file of pdfFiles) {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                    const fileNameBase = file.name.replace(/\.[^/.]+$/, "");
+
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        const page = await pdf.getPage(i);
+                        const textContent = await page.getTextContent();
+                        const textItems = textContent.items.map(item => item.str);
+                        const info = extractInvoiceInfo(textItems);
+                        
+                        let customName = `发票 ${info.amount}+${info.invoiceNo}.jpg`;
+                        if (info.amount === "未知" && info.invoiceNo === "未知") {
+                            customName = `${fileNameBase}_p${i}.jpg`;
+                        }
+
+                        const scale = parseFloat(qualityScale.value);
+                        const viewport = page.getViewport({ scale: scale });
+                        const canvas = document.createElement('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+
+                        await page.render({ canvasContext: context, viewport: viewport }).promise;
+                        
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+                        convertedImages.push({ name: customName, dataUrl: dataUrl, amount: info.amount, no: info.invoiceNo });
+                        
+                        addPreviewItem(dataUrl, customName, info);
+                        
+                        totalProcessed++;
+                        const percent = Math.round((totalProcessed / totalPages) * 100);
+                        progressBar.style.width = percent + '%';
+                        progressPercent.innerText = percent + '%';
+                        countBadge.innerText = totalProcessed;
+                    }
+                }
+
+                progressText.innerText = "转换成功";
+                downloadAllBtn.classList.remove('hidden');
+                
+            } catch (error) {
+                progressText.innerText = "处理出错";
+            }
+        }
+
+        function addPreviewItem(src, title, info) {
+            const div = document.createElement('div');
+            div.className = 'image-card group glass-panel rounded-3xl overflow-hidden shadow-sm hover:shadow-2xl cursor-pointer';
+            div.innerHTML = `
+                <div class="aspect-[3/4] overflow-hidden relative">
+                    <img src="${src}" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="${title}">
+                    <div class="absolute inset-0 bg-indigo-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <span class="bg-white/90 text-indigo-600 px-4 py-2 rounded-xl font-bold text-xs shadow-xl backdrop-blur-md">预览细节</span>
+                    </div>
+                </div>
+                <div class="p-4 space-y-2 bg-white">
+                    <div class="flex flex-wrap gap-1.5">
+                        <span class="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-100 italic">¥ ${info.amount}</span>
+                        <span class="bg-slate-50 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded border border-slate-200">ID: ${info.no}</span>
+                    </div>
+                    <p class="text-[10px] font-bold text-slate-400 truncate tracking-tight uppercase">${title}</p>
+                </div>
+            `;
+            div.onclick = () => openModal(src, title);
+            previewList.appendChild(div);
+        }
+
+        function openModal(src, title) {
+            modalImage.src = src;
+            modalTitle.innerText = title;
+            modalDownload.href = src;
+            modalDownload.download = title;
+            previewModal.classList.remove('hidden');
+            setTimeout(() => {
+                previewModal.classList.add('opacity-100');
+                document.getElementById('modalContent').classList.remove('scale-90');
+                document.getElementById('modalContent').classList.add('scale-100');
+            }, 10);
+        }
+
+        function closeModalWindow() {
+            previewModal.classList.remove('opacity-100');
+            document.getElementById('modalContent').classList.remove('scale-100');
+            document.getElementById('modalContent').classList.add('scale-90');
+            setTimeout(() => {
+                previewModal.classList.add('hidden');
+                modalImage.src = "";
+            }, 300);
+        }
+
+        closeModal.onclick = closeModalWindow;
+        previewModal.onclick = (e) => { if(e.target === previewModal) closeModalWindow(); };
+
+        downloadAllBtn.onclick = async () => {
+            const zip = new JSZip();
+            const nameTracker = {}; // 用于跟踪文件名出现次数
+
+            convertedImages.forEach(img => {
+                let finalName = img.name;
+                
+                // 如果文件名已存在，增加后缀
+                if (nameTracker[finalName]) {
+                    const parts = finalName.split('.');
+                    const ext = parts.pop();
+                    const base = parts.join('.');
+                    finalName = `${base} (${nameTracker[finalName]}).${ext}`;
+                    nameTracker[img.name]++;
+                } else {
+                    nameTracker[finalName] = 1;
+                }
+
+                const base64Data = img.dataUrl.split(',')[1];
+                zip.file(finalName, base64Data, {base64: true});
+            });
+
+            const content = await zip.generateAsync({type: "blob"});
+            const url = window.URL.createObjectURL(content);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `发票批量导出_${new Date().toISOString().slice(0,10)}.zip`;
+            a.click();
+        };
+    </script>
+</body>
+</html>
